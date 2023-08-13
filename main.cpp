@@ -252,7 +252,6 @@ inline void ProcessPedFuncs(CPed* ped)
     if (clump && clump->object.type == rpCLUMP)
     {
         auto info = GetExtData(ped);
-        logger->Info("ProcessPedFuncs: %d, hasRemaps %d", ped->m_nModelIndex, info->remap->hasRemaps);
         if(info->remap->hasRemaps)
         {
             if(info->didChanges)
