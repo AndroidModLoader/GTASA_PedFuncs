@@ -11,7 +11,7 @@
     #define BYVER(__for32, __for64) (__for64)
 #endif
 
-MYMOD(net.juniordjjr.rusjj.pedfuncs, PedFuncs, 1.0.1, JuniorDjjr & RusJJ)
+MYMOD(net.juniordjjr.rusjj.pedfuncs, PedFuncs, 1.0.2, JuniorDjjr & RusJJ)
 BEGIN_DEPLIST()
     ADD_DEPENDENCY_VER(net.rusjj.aml, 1.0.2.1)
     ADD_DEPENDENCY_VER(net.rusjj.gtasa.utils, 1.3)
@@ -29,7 +29,6 @@ struct PedRemaps
     bool thisModelProcessed;
     bool hasRemaps;
     uint8_t currentProcessedTexture;
-    uint8_t texturesInAModel;
     RwTexture* originalTextures[TEXTURE_LIMIT];
     char remapTexturesName[TEXTURE_LIMIT][rwTEXTUREBASENAMELENGTH];
     uint8_t remapsCount[TEXTURE_LIMIT];
@@ -38,7 +37,6 @@ struct PedRemaps
     {
         thisModelProcessed = false;
         hasRemaps = false;
-        texturesInAModel = 0;
         for(int i = 0; i < TEXTURE_LIMIT; ++i)
         {
             originalTextures[i] = NULL;
@@ -86,7 +84,6 @@ RwTexture *pTextureHandsBlack, *pTextureHandsWhite;
 TextureDatabaseRuntime **GangHandsTexDB;
 TextureDatabaseRuntime **PedsRemapDatabases[TEXDB_LIMIT];
 uint32_t LastCutsceneEnded = 0;
-bool WasRunningCutsceneBefore = false;
 int RemapsIdForModelIds[MAX_PEDS_ID + 1];
 PedRemaps PossiblePedRemaps[MAX_PEDS_ID + 1];
 char PedRemapTexdbNames[TEXDB_LIMIT][32];
@@ -174,16 +171,16 @@ inline void PreparePed(CPed* ped)
             info.remap = remapData;
             if(!remapData->thisModelProcessed)
             {
+                remapData.currentProcessedTexture = 0;
                 RpClumpForAllAtomics(clump, [](RpAtomic *atomic, void *data)
                 {
                     if (atomic->geometry)
                     {
                         RpGeometryForAllMaterials(atomic->geometry, [](RpMaterial *material, void *data)
                         {
-                            if(!material || !material->texture) return material;
                             PedRemaps* remap = (PedRemaps*)data;
-
-                            int i = remap->texturesInAModel; ++remap->texturesInAModel;
+                            int i = remap->currentProcessedTexture; ++remap->currentProcessedTexture;
+                            if(!material || !material->texture) return material;
                             remap->originalTextures[i] = material->texture;
 
                             char remapTex[rwTEXTUREBASENAMELENGTH], remapNumTex[rwTEXTUREBASENAMELENGTH];
@@ -232,7 +229,7 @@ inline void PreparePed(CPed* ped)
                                     {
                                         CurrentPedExtended->didChanges = true;
                                         CurrentPedExtended->remappedTexture[i] = texture;
-                                        ++texture->refCount;
+                                        texture->refCount += 4;
                                     }
                                     else CurrentPedExtended->remappedTexture[i] = remap->originalTextures[i];
                                 }
@@ -260,48 +257,51 @@ inline void ProcessPedFuncs(CPed* ped)
     if (clump && clump->object.type == rpCLUMP)
     {
         auto info = GetExtData(ped);
-        if(info->remap->hasRemaps && info->didChanges)
+        if(info->remap->hasRemaps)
         {
-            info->currentProcessedTexture = 0;
-            RpClumpForAllAtomics(clump, [](RpAtomic *atomic, void *data)
+            if(info->didChanges)
             {
-                if (atomic->geometry)
+                info->currentProcessedTexture = 0;
+                RpClumpForAllAtomics(clump, [](RpAtomic *atomic, void *data)
                 {
-                    RpGeometryForAllMaterials(atomic->geometry, [](RpMaterial *material, void *data)
+                    if (atomic->geometry)
                     {
-                        if(!material || !material->texture) return material;
+                        RpGeometryForAllMaterials(atomic->geometry, [](RpMaterial *material, void *data)
+                        {
+                            PedExtended* info = (PedExtended*)data;
+                            int i = info->currentProcessedTexture; ++info->currentProcessedTexture;
+                            if(!material || !material->texture) return material;
 
-                        PedExtended* info = (PedExtended*)data;
-                        int i = info->currentProcessedTexture; ++info->currentProcessedTexture;
-
-                        material->texture = info->remappedTexture[i];
-                        return material;
-                    }, data);
-                }
-                return atomic;
-            }, info);
-        }
-        else
-        {
-            PedRemaps* remap = info->remap;
-            remap->currentProcessedTexture = 0;
-            RpClumpForAllAtomics(clump, [](RpAtomic *atomic, void *data)
+                            material->texture = info->remappedTexture[i];
+                            return material;
+                        }, data);
+                    }
+                    return atomic;
+                }, info);
+            }
+            else
             {
-                if (atomic->geometry)
+                PedRemaps* remap = info->remap;
+                remap->currentProcessedTexture = 0;
+                RpClumpForAllAtomics(clump, [](RpAtomic *atomic, void *data)
                 {
-                    RpGeometryForAllMaterials(atomic->geometry, [](RpMaterial *material, void *data)
+                    if (atomic->geometry)
                     {
-                        if(!material || !material->texture) return material;
+                        RpGeometryForAllMaterials(atomic->geometry, [](RpMaterial *material, void *data)
+                        {
+                            PedRemaps* remap = (PedRemaps*)data;
+                            int i = remap->currentProcessedTexture; ++remap->currentProcessedTexture;
+                            if(!material || !material->texture) return material;
 
-                        PedRemaps* remap = (PedRemaps*)data;
-                        int i = remap->currentProcessedTexture; ++remap->currentProcessedTexture;
-
-                        material->texture = remap->originalTextures[i];
-                        return material;
-                    }, data);
-                }
-                return atomic;
-            }, remap);
+                            RwTexture *orgTexture = remap->originalTextures[i];
+                            if(!orgTexture) remap->originalTextures[i] = material->texture;
+                            else material->texture = orgTexture;
+                            return material;
+                        }, data);
+                    }
+                    return atomic;
+                }, remap);
+            }
         }
     }
 }
@@ -309,7 +309,7 @@ inline void ProcessPedFuncs(CPed* ped)
 // Hooks
 DECL_HOOKv(ChangePedModel, CPed* self, int model)
 {
-    bool ready = (!*ms_running && (*m_snTimeInMilliseconds - LastCutsceneEnded) > 3000);
+    bool ready = (*m_snTimeInMilliseconds > LastCutsceneEnded);
     if(!ready)
     {
         ChangePedModel(self, model);
@@ -327,8 +327,7 @@ DECL_HOOKv(PedRender, CPed* self)
 DECL_HOOKv(CutsceneManagerUpdate)
 {
     CutsceneManagerUpdate();
-    if(WasRunningCutsceneBefore && !(*ms_running)) LastCutsceneEnded = *m_snTimeInMilliseconds;
-    WasRunningCutsceneBefore = *ms_running;
+    if(*ms_running) LastCutsceneEnded = *m_snTimeInMilliseconds + 3000;
 }
 
 // Patch
