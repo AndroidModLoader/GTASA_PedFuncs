@@ -33,7 +33,7 @@ struct PedRemaps
     char remapTexturesName[TEXTURE_LIMIT][rwTEXTUREBASENAMELENGTH];
     uint8_t remapsCount[TEXTURE_LIMIT];
 
-    PedRemaps()
+    void Init()
     {
         thisModelProcessed = false;
         hasRemaps = false;
@@ -153,13 +153,10 @@ inline RwTexture* GetTextureFromPedDBs(const char* name)
     return NULL;
 }
 PedExtended* CurrentPedExtended;
-inline void PreparePed(CPed* ped)
+inline void PreparePed(CPed* ped, PedExtended &info)
 {
     int modelId = ped->m_nModelIndex;
     if(!modelId) return;
-
-    auto& info = *GetExtData(ped);
-    info.Reset();
 
     CBaseModelInfo* pedModelInfo = ms_modelInfoPtrs[modelId];
     if(pedModelInfo)
@@ -167,11 +164,10 @@ inline void PreparePed(CPed* ped)
         auto clump = ped->m_pRwClump;
         if (clump && clump->object.type == rpCLUMP)
         {
-            auto remapData = &PossiblePedRemaps[modelId];
-            info.remap = remapData;
+            PedRemaps* remapData = info.remap;
             if(!remapData->thisModelProcessed)
             {
-                remapData.currentProcessedTexture = 0;
+                remapData->currentProcessedTexture = 0;
                 RpClumpForAllAtomics(clump, [](RpAtomic *atomic, void *data)
                 {
                     if (atomic->geometry)
@@ -214,9 +210,9 @@ inline void PreparePed(CPed* ped)
                     {
                         RpGeometryForAllMaterials(atomic->geometry, [](RpMaterial *material, void *data)
                         {
-                            if(!material || !material->texture) return material;
                             PedRemaps* remap = (PedRemaps*)data;
                             int i = remap->currentProcessedTexture; ++remap->currentProcessedTexture;
+                            if(!material || !material->texture) return material;
                             if(remap->remapsCount[i] > 0)
                             {
                                 int remapNum = RandomFromZero(remap->remapsCount[i]);
@@ -229,13 +225,12 @@ inline void PreparePed(CPed* ped)
                                     {
                                         CurrentPedExtended->didChanges = true;
                                         CurrentPedExtended->remappedTexture[i] = texture;
-                                        texture->refCount += 4;
+                                        ++texture->refCount;
+                                        return material;
                                     }
-                                    else CurrentPedExtended->remappedTexture[i] = remap->originalTextures[i];
                                 }
-                                else CurrentPedExtended->remappedTexture[i] = remap->originalTextures[i];
                             }
-                            else CurrentPedExtended->remappedTexture[i] = remap->originalTextures[i];
+                            CurrentPedExtended->remappedTexture[i] = remap->originalTextures[i];
                             return material;
                         }, data);
                     }
@@ -257,6 +252,7 @@ inline void ProcessPedFuncs(CPed* ped)
     if (clump && clump->object.type == rpCLUMP)
     {
         auto info = GetExtData(ped);
+        logger->Info("ProcessPedFuncs: %d, hasRemaps %d", ped->m_nModelIndex, info->remap->hasRemaps);
         if(info->remap->hasRemaps)
         {
             if(info->didChanges)
@@ -310,6 +306,11 @@ inline void ProcessPedFuncs(CPed* ped)
 DECL_HOOKv(ChangePedModel, CPed* self, int model)
 {
     bool ready = (*m_snTimeInMilliseconds > LastCutsceneEnded);
+    auto& info = *GetExtData(self);
+    info.Reset();
+    auto remapData = &PossiblePedRemaps[model];
+    info.remap = remapData;
+
     if(!ready)
     {
         ChangePedModel(self, model);
@@ -317,7 +318,7 @@ DECL_HOOKv(ChangePedModel, CPed* self, int model)
     }
 
     ChangePedModel(self, model);
-    PreparePed(self);
+    PreparePed(self, info);
 }
 DECL_HOOKv(PedRender, CPed* self)
 {
@@ -422,5 +423,9 @@ extern "C" void OnModLoad()
     {
         sprintf(PedRemapTexdbNames[i], "peds%d", i + 1);
         PedsRemapDatabases[i] = LoadDBIfExists(PedRemapTexdbNames[i]);
+    }
+    for(int i = 0; i <= MAX_PEDS_ID; ++i)
+    {
+        PossiblePedRemaps[i].Init();
     }
 }
