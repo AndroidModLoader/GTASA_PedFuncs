@@ -11,7 +11,7 @@
     #define BYVER(__for32, __for64) (__for64)
 #endif
 
-MYMOD(net.juniordjjr.rusjj.pedfuncs, PedFuncs, 1.0, JuniorDjjr & RusJJ)
+MYMOD(net.juniordjjr.rusjj.pedfuncs, PedFuncs, 1.0.1, JuniorDjjr & RusJJ)
 BEGIN_DEPLIST()
     ADD_DEPENDENCY_VER(net.rusjj.aml, 1.0.2.1)
     ADD_DEPENDENCY_VER(net.rusjj.gtasa.utils, 1.3)
@@ -20,8 +20,9 @@ END_DEPLIST()
 #include "isautils.h"
 ISAUtils* sautils = NULL;
 
-const int TEXTURE_LIMIT = 8;
+const int TEXTURE_LIMIT = 32;
 const int TEXDB_LIMIT = 4;
+const int MAX_PEDS_ID = 20000;
 
 struct PedRemaps
 {
@@ -86,8 +87,8 @@ TextureDatabaseRuntime **GangHandsTexDB;
 TextureDatabaseRuntime **PedsRemapDatabases[TEXDB_LIMIT];
 uint32_t LastCutsceneEnded = 0;
 bool WasRunningCutsceneBefore = false;
-int RemapsIdForModelIds[315 + 1];
-PedRemaps PossiblePedRemaps[315 + 1];
+int RemapsIdForModelIds[MAX_PEDS_ID + 1];
+PedRemaps PossiblePedRemaps[MAX_PEDS_ID + 1];
 char PedRemapTexdbNames[TEXDB_LIMIT][32];
 
 // OWN Configs
@@ -160,15 +161,15 @@ inline void PreparePed(CPed* ped)
     int modelId = ped->m_nModelIndex;
     if(!modelId) return;
 
-    //CBaseModelInfo* pedModelInfo = ms_modelInfoPtrs[modelId];
-    //if(pedModelInfo)
+    auto& info = *GetExtData(ped);
+    info.Reset();
+
+    CBaseModelInfo* pedModelInfo = ms_modelInfoPtrs[modelId];
+    if(pedModelInfo)
     {
         auto clump = ped->m_pRwClump;
         if (clump && clump->object.type == rpCLUMP)
         {
-            auto& info = *GetExtData(ped);
-            info.Reset();
-
             auto remapData = &PossiblePedRemaps[modelId];
             info.remap = remapData;
             if(!remapData->thisModelProcessed)
