@@ -9,6 +9,6 @@ else
 endif
 LOCAL_SRC_FILES := main.cpp mod/logger.cpp
 LOCAL_CFLAGS += -O2 -mfloat-abi=softfp -DNDEBUG -std=c++17
-LOCAL_C_INCLUDES += ./include
+LOCAL_C_INCLUDES += $(LOCAL_PATH)/aml-psdk $(LOCAL_PATH)/aml-psdk/aml-psdk
 LOCAL_LDLIBS += -llog
 include $(BUILD_SHARED_LIBRARY)

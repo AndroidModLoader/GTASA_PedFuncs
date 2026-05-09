@@ -3,17 +3,21 @@
 #include <unistd.h>
 #include <list>
 
-#ifdef AML32
-    #include "GTASA_STRUCTS.h"
-    #define BYVER(__for32, __for64) (__for32)
-#else
-    #include "GTASA_STRUCTS_210.h"
-    #define BYVER(__for32, __for64) (__for64)
-#endif
+#include <game_sa/extdata/PedExtender.h>
+#include <game_sa/other/TextureDatabase.h>
+#include <game_sa/engine/ModelInfo.h>
+#include <game_sa/base/Timer.h>
+#include <game_sa/other/CutsceneMgr.h>
 
-MYMOD(net.juniordjjr.rusjj.pedfuncs, PedFuncs, 1.0.2, JuniorDjjr & RusJJ)
+#include <renderware/RwTexture.h>
+#include <renderware/RpMaterial.h>
+#include <renderware/RpClump.h>
+#include <renderware/RpGeometry.h>
+#include <renderware/RpAtomic.h>
+
+MYMOD(net.juniordjjr.rusjj.pedfuncs, PedFuncs, 1.1, JuniorDjjr & RusJJ)
 BEGIN_DEPLIST()
-    ADD_DEPENDENCY_VER(net.rusjj.aml, 1.0.2.1)
+    ADD_DEPENDENCY_VER(net.rusjj.aml, 1.3)
     ADD_DEPENDENCY_VER(net.rusjj.gtasa.utils, 1.3)
 END_DEPLIST()
 
@@ -22,7 +26,7 @@ ISAUtils* sautils = NULL;
 
 const int TEXTURE_LIMIT = 32;
 const int TEXDB_LIMIT = 4;
-const int MAX_PEDS_ID = 20000;
+const int MAX_PEDS_ID = 22000;
 
 struct PedRemaps
 {
@@ -58,52 +62,26 @@ struct PedExtended
         currentProcessedTexture = 0;
         remap = NULL;
     }
+    PedExtended(CPed* ped)
+    {
+        Reset();
+    }
 };
+PedExtendedData<PedExtended> extData;
 
 uintptr_t pGTASA;
 void* hGTASA;
 
-// GTA Vars
-CPool<CPed, CCopPed> **ms_pPedPool;
-CBaseModelInfo** ms_modelInfoPtrs;
-uint32_t *m_snTimeInMilliseconds;
-bool *ms_running;
-
-// GTA Funcs
-int (*GetEntry)(TextureDatabaseRuntime *,char const*, bool*);
-RwTexture* (*GetRWTexture)(TextureDatabaseRuntime *, int);
-void (*RpClumpForAllAtomics)(RpClump *,RpAtomic * (*)(RpAtomic *,void *),void *);
-void (*RpGeometryForAllMaterials)(RpGeometry *,RpMaterial * (*)(RpMaterial *,void *),void *);
-RwTexture* (*GetTexture)(const char *);
-RpClump* (*RpClumpClone)(RpClump *);
-void (*RpClumpDestroy)(RpClump *);
-
 // OWN Vars
-CPool<PedExtended> *ms_pPedExtendedPool = NULL;
 RwTexture *pTextureHandsBlack, *pTextureHandsWhite;
 TextureDatabaseRuntime **GangHandsTexDB;
 TextureDatabaseRuntime **PedsRemapDatabases[TEXDB_LIMIT];
-uint32_t LastCutsceneEnded = 0;
+uint32_t PedRemapsFunctionalityTime = 0;
 int RemapsIdForModelIds[MAX_PEDS_ID + 1];
 PedRemaps PossiblePedRemaps[MAX_PEDS_ID + 1];
 char PedRemapTexdbNames[TEXDB_LIMIT][32];
 
-// OWN Configs
-
-
 // OWN Funcs
-inline PedExtended* GetExtData(CPed* ped)
-{
-    if(!ms_pPedExtendedPool)
-    {
-        if(!*ms_pPedPool) return NULL;
-        auto size = (*ms_pPedPool)->m_nSize;
-        ms_pPedExtendedPool = new CPool<PedExtended>(size, "PedExtended");
-        ms_pPedExtendedPool->m_nFirstFree = size;
-        for(int i = 0; i < size; ++i) ms_pPedExtendedPool->m_byteMap[i].bEmpty = false;
-    }
-    return ms_pPedExtendedPool->GetAt((*ms_pPedPool)->GetIndex(ped));
-}
 inline void Clamp(int& val, int min, int max)
 {
     if(val > max) val = max;
@@ -137,7 +115,7 @@ inline float RandomFloat(float min, float max)
 inline RwTexture* GetTextureFromTexDB(TextureDatabaseRuntime* texdb, const char* name)
 {
     bool hasSiblings;
-    return GetRWTexture(texdb, GetEntry(texdb, name, &hasSiblings));
+    return texdb->GetRWTexture(texdb->GetEntry(name, &hasSiblings));
 }
 inline RwTexture* GetTextureFromPedDBs(const char* name)
 {
@@ -158,7 +136,7 @@ inline void PreparePed(CPed* ped, PedExtended &info)
     int modelId = ped->m_nModelIndex;
     if(!modelId) return;
 
-    CBaseModelInfo* pedModelInfo = ms_modelInfoPtrs[modelId];
+    CBaseModelInfo* pedModelInfo = CModelInfo::ms_modelInfoPtrs[modelId];
     if(pedModelInfo)
     {
         auto clump = ped->m_pRwClump;
@@ -251,12 +229,12 @@ inline void ProcessPedFuncs(CPed* ped)
     auto clump = ped->m_pRwClump;
     if (clump && clump->object.type == rpCLUMP)
     {
-        auto info = GetExtData(ped);
-        if(info->remap->hasRemaps)
+        auto& info = extData.Get(ped);
+        if(info.remap->hasRemaps)
         {
-            if(info->didChanges)
+            if(info.didChanges)
             {
-                info->currentProcessedTexture = 0;
+                info.currentProcessedTexture = 0;
                 RpClumpForAllAtomics(clump, [](RpAtomic *atomic, void *data)
                 {
                     if (atomic->geometry)
@@ -272,11 +250,11 @@ inline void ProcessPedFuncs(CPed* ped)
                         }, data);
                     }
                     return atomic;
-                }, info);
+                }, &info);
             }
             else
             {
-                PedRemaps* remap = info->remap;
+                PedRemaps* remap = info.remap;
                 remap->currentProcessedTexture = 0;
                 RpClumpForAllAtomics(clump, [](RpAtomic *atomic, void *data)
                 {
@@ -300,34 +278,52 @@ inline void ProcessPedFuncs(CPed* ped)
         }
     }
 }
-
-// Hooks
-DECL_HOOKv(ChangePedModel, CPed* self, int model)
+inline void ChangePedModel_Tweaked(void(*org)(CPed*, int), CPed* self, int model)
 {
-    bool ready = (*m_snTimeInMilliseconds > LastCutsceneEnded);
-    auto& info = *GetExtData(self);
+    bool ready = (CTimer::m_snTimeInMilliseconds > PedRemapsFunctionalityTime);
+    auto& info = extData.Get(self);
     info.Reset();
     auto remapData = &PossiblePedRemaps[model];
     info.remap = remapData;
 
     if(!ready)
     {
-        ChangePedModel(self, model);
+        org(self, model);
         return;
     }
 
-    ChangePedModel(self, model);
+    org(self, model);
     PreparePed(self, info);
 }
-DECL_HOOKv(PedRender, CPed* self)
+inline void PedRender_Tweaked(void(*org)(CPed*), CPed* self)
 {
-    if(self->m_nModelIndex != 0) ProcessPedFuncs(self);
-    PedRender(self);
+    bool ready = (CTimer::m_snTimeInMilliseconds > PedRemapsFunctionalityTime);
+    if(self->m_nModelIndex != 0 && ready) ProcessPedFuncs(self);
+    org(self);
 }
+
+// Hooks
+DECL_HOOKv(ChangePedModel1, CPed* self, int model) { ChangePedModel_Tweaked(ChangePedModel1, self, model); }
+DECL_HOOKv(ChangePedModel2, CPed* self, int model) { ChangePedModel_Tweaked(ChangePedModel2, self, model); }
+DECL_HOOKv(ChangePedModel3, CPed* self, int model) { ChangePedModel_Tweaked(ChangePedModel3, self, model); }
+DECL_HOOKv(ChangePedModel4, CPed* self, int model) { ChangePedModel_Tweaked(ChangePedModel4, self, model); }
+DECL_HOOKv(ChangePedModel5, CPed* self, int model) { ChangePedModel_Tweaked(ChangePedModel5, self, model); }
+DECL_HOOKv(ChangePedModel6, CPed* self, int model) { ChangePedModel_Tweaked(ChangePedModel6, self, model); }
+
+DECL_HOOKv(PedRender1, CPed* self) { PedRender_Tweaked(PedRender1, self); }
+DECL_HOOKv(PedRender2, CPed* self) { PedRender_Tweaked(PedRender2, self); }
+DECL_HOOKv(PedRender3, CPed* self) { PedRender_Tweaked(PedRender3, self); }
+DECL_HOOKv(PedRender4, CPed* self) { PedRender_Tweaked(PedRender4, self); }
+DECL_HOOKv(PedRender5, CPed* self) { PedRender_Tweaked(PedRender5, self); }
+
 DECL_HOOKv(CutsceneManagerUpdate)
 {
     CutsceneManagerUpdate();
-    if(*ms_running) LastCutsceneEnded = *m_snTimeInMilliseconds + 3000;
+
+    if(CCutsceneMgr::ms_running)
+    {
+        PedRemapsFunctionalityTime = CTimer::m_snTimeInMilliseconds + 3000;
+    }
 }
 
 // Patch
@@ -343,13 +339,16 @@ extern "C" RwTexture* HandObjectMissingTexture_Patch(CPed* ped)
         ++pTextureHandsWhite->refCount;
     }
 
-    CPedModelInfo* pedModelInfo = (CPedModelInfo*)(ms_modelInfoPtrs[ped->m_nModelIndex]);
-    if (pedModelInfo->m_defaultPedType == ePedType::PED_TYPE_GANG1 || pedModelInfo->m_defaultPedType == ePedType::PED_TYPE_GANG2) return pTextureHandsBlack;
+    CPedModelInfo* pedModelInfo = (CPedModelInfo*)( CModelInfo::ms_modelInfoPtrs[ped->m_nModelIndex] );
+    if (pedModelInfo->m_nPedType == ePedType::PED_TYPE_GANG1 || pedModelInfo->m_nPedType == ePedType::PED_TYPE_GANG2)
+    {
+        return pTextureHandsBlack;
+    }
     return pTextureHandsWhite;
 }
-#ifdef AML32
 __attribute__((optnone)) __attribute__((naked)) void HandObjectMissingTexture(void)
 {
+  #ifdef AML32
     asm volatile(
         "PUSH {R1-R11}\n"
         "LDR R0, [SP, #0x14]\n"
@@ -363,15 +362,12 @@ __attribute__((optnone)) __attribute__((naked)) void HandObjectMissingTexture(vo
         "POP {R1-R11}\n"
         "BX R12\n"
     :: "r" (HandObjectMissingTexture_BackTo));
-}
-#else
-__attribute__((optnone)) __attribute__((naked)) void HandObjectMissingTexture(void)
-{
+  #else
     asm volatile("MOV X0, X19\nBL HandObjectMissingTexture_Patch");
     asm volatile("MOV X8, %0\n" :: "r"(HandObjectMissingTexture_BackTo));
     asm("BR X8");
+  #endif
 }
-#endif
 
 // Main
 extern "C" void OnModLoad()
@@ -384,37 +380,24 @@ extern "C" void OnModLoad()
     pGTASA = aml->GetLib("libGTASA.so");
     hGTASA = aml->GetLibHandle("libGTASA.so");
 
-    SET_TO(GetEntry, aml->GetSym(hGTASA, "_ZN22TextureDatabaseRuntime8GetEntryEPKcRb"));
-    SET_TO(GetRWTexture, aml->GetSym(hGTASA, "_ZN22TextureDatabaseRuntime12GetRWTextureEi"));
-    SET_TO(RpClumpForAllAtomics, aml->GetSym(hGTASA, "_Z20RpClumpForAllAtomicsP7RpClumpPFP8RpAtomicS2_PvES3_"));
-    SET_TO(RpGeometryForAllMaterials, aml->GetSym(hGTASA, "_Z25RpGeometryForAllMaterialsP10RpGeometryPFP10RpMaterialS2_PvES3_"));
-    SET_TO(GetTexture, aml->GetSym(hGTASA, "_ZN22TextureDatabaseRuntime10GetTextureEPKc"));
-    SET_TO(RpClumpClone, aml->GetSym(hGTASA, "_Z12RpClumpCloneP7RpClump"));
-    SET_TO(RpClumpDestroy, aml->GetSym(hGTASA, "_Z14RpClumpDestroyP7RpClump"));
+    HOOKPLT(ChangePedModel1, pGTASA + BYBIT(0x674560, 0x8474D8));
+    HOOKPLT(ChangePedModel2, pGTASA + BYBIT(0x668ABC, 0x831BD8)); // vtable
+    HOOKPLT(ChangePedModel3, pGTASA + BYBIT(0x668B30, 0x831CC0)); // vtable
+    HOOKPLT(ChangePedModel4, pGTASA + BYBIT(0x668C08, 0x831E70)); // vtable
+    HOOKPLT(ChangePedModel5, pGTASA + BYBIT(0x668C80, 0x831F60)); // vtable
+    HOOKPLT(ChangePedModel6, pGTASA + BYBIT(0x6692A0, 0x833128)); // vtable
 
-    SET_TO(ms_pPedPool, aml->GetSym(hGTASA, "_ZN6CPools11ms_pPedPoolE"));
-    SET_TO(ms_modelInfoPtrs, aml->GetSym(hGTASA, "_ZN10CModelInfo16ms_modelInfoPtrsE"));
-    SET_TO(m_snTimeInMilliseconds, aml->GetSym(hGTASA, "_ZN6CTimer22m_snTimeInMillisecondsE"));
-    SET_TO(ms_running, aml->GetSym(hGTASA, "_ZN12CCutsceneMgr10ms_runningE"));
+    HOOKPLT(PedRender1, pGTASA + BYBIT(0x668AF0, 0x831C40)); // vtable
+    HOOKPLT(PedRender2, pGTASA + BYBIT(0x668B64, 0x831D28)); // vtable
+    HOOKPLT(PedRender3, pGTASA + BYBIT(0x668C3C, 0x831ED8)); // vtable
+    HOOKPLT(PedRender4, pGTASA + BYBIT(0x668CB4, 0x831FC8)); // vtable
+    HOOKPLT(PedRender5, pGTASA + BYBIT(0x6692D4, 0x833190)); // vtable
 
-    HOOKPLT(ChangePedModel, pGTASA + BYVER(0x674560, 0x8474D8));
-    HOOKPLT(ChangePedModel, pGTASA + BYVER(0x668ABC, 0x831BD8)); // vtable
-    HOOKPLT(ChangePedModel, pGTASA + BYVER(0x668B30, 0x831CC0)); // vtable
-    HOOKPLT(ChangePedModel, pGTASA + BYVER(0x668C08, 0x831E70)); // vtable
-    HOOKPLT(ChangePedModel, pGTASA + BYVER(0x668C80, 0x831F60)); // vtable
-    HOOKPLT(ChangePedModel, pGTASA + BYVER(0x6692A0, 0x833128)); // vtable
-
-    HOOKPLT(PedRender, pGTASA + BYVER(0x668AF0, 0x831C40)); // vtable
-    HOOKPLT(PedRender, pGTASA + BYVER(0x668B64, 0x831D28)); // vtable
-    HOOKPLT(PedRender, pGTASA + BYVER(0x668C3C, 0x831ED8)); // vtable
-    HOOKPLT(PedRender, pGTASA + BYVER(0x668CB4, 0x831FC8)); // vtable
-    HOOKPLT(PedRender, pGTASA + BYVER(0x6692D4, 0x833190)); // vtable
-
-    HOOKPLT(CutsceneManagerUpdate, pGTASA + BYVER(0x675B90, 0x8498B8)); // vtable
+    HOOKPLT(CutsceneManagerUpdate, pGTASA + BYBIT(0x6750C8, 0x848718)); // vtable
 
     // CHandObject::CHandObject
-    aml->Redirect(pGTASA + BYVER(0x4529B6 + 0x1, 0x53B4F0), (uintptr_t)HandObjectMissingTexture);
-    HandObjectMissingTexture_BackTo = pGTASA + BYVER(0x4529D0 + 0x1, 0x53B510);
+    aml->Redirect(pGTASA + BYBIT(0x4529B6 + 0x1, 0x53B4F0), (uintptr_t)HandObjectMissingTexture);
+    HandObjectMissingTexture_BackTo = pGTASA + BYBIT(0x4529D0 + 0x1, 0x53B510);
 
     GangHandsTexDB = (TextureDatabaseRuntime**)sautils->AddTextureDB("ganghands");
 
