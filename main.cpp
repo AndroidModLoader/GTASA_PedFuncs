@@ -330,13 +330,13 @@ DECL_HOOKv(CutsceneManagerUpdate)
 uintptr_t HandObjectMissingTexture_BackTo;
 extern "C" RwTexture* HandObjectMissingTexture_Patch(CPed* ped)
 {
-    if(!pTextureHandsBlack)
+    if(!pTextureHandsBlack && !pTextureHandsWhite && *GangHandsTexDB)
     {
         pTextureHandsBlack = GetTextureFromTexDB(*GangHandsTexDB, "hands_black");
         pTextureHandsWhite = GetTextureFromTexDB(*GangHandsTexDB, "hands_white");
 
-        ++pTextureHandsBlack->refCount;
-        ++pTextureHandsWhite->refCount;
+        if(pTextureHandsBlack) ++pTextureHandsBlack->refCount;
+        if(pTextureHandsWhite) ++pTextureHandsWhite->refCount;
     }
 
     CPedModelInfo* pedModelInfo = (CPedModelInfo*)( CModelInfo::ms_modelInfoPtrs[ped->m_nModelIndex] );
