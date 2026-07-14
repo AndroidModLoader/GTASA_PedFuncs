@@ -46,7 +46,7 @@ jobs:
       uses: nttld/setup-ndk@v1
       with:
         ndk-version: r25c
-        local-cache: true
+        #local-cache: true
 
     - name: Build the code...
       run: ndk-build NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=./Android.mk NDK_APPLICATION_MK=./Application.mk NDK_DEBUG=0 -j12
