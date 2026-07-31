@@ -64,7 +64,7 @@ struct PedRemaps
         const int size = vecRemap.size();
 
         if(size <= 0) return NULL;
-        return vecRemap[randint(0, size)];
+        return vecRemap[randint(0, size - 1)];
     }
 };
 struct PedExtended
@@ -87,6 +87,11 @@ struct PedExtended
         myPed = NULL;
         processedMaterial = 0;
         wasProcessedForRemaps = false;
+
+        for(int i = 0; i < TEXTURE_LIMIT; ++i)
+        {
+            remappedTexture[i] = NULL;
+        }
     }
     inline void AssignRemaps()
     {
