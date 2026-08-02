@@ -35,6 +35,7 @@ const int MAX_SCAN_DEEP = 5;
 struct PedRemaps
 {
     std::vector<RwTexture*> vecTextures[TEXTURE_LIMIT];
+    uint16_t lastUsedIdx[TEXTURE_LIMIT];
 
     int boundModel;
     bool remapsReady;
@@ -52,6 +53,7 @@ struct PedRemaps
         for(int i = 0; i < TEXTURE_LIMIT; ++i)
         {
             vecTextures[i].clear();
+            lastUsedIdx[i] = 0xFFFF;
         }
     }
     inline int GetRemapsCount(uint8_t matIndex)
@@ -63,9 +65,12 @@ struct PedRemaps
         const std::vector<RwTexture*>& vecRemap = vecTextures[matIndex];
         const int size = vecRemap.size();
 
-        if(size <= 0) return NULL;
+        if(size <= 0) return NULL; // No remaps for this material
         
         int idx = randint(0, size);
+        if(idx == lastUsedIdx[matIndex]) idx = randint(0, size); // Wont do heavy math here...
+        lastUsedIdx[matIndex] = idx;
+        
         return (idx > 0) ? vecRemap[idx - 1] : NULL;
     }
 };
