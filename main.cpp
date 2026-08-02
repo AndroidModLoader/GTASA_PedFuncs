@@ -17,7 +17,7 @@
 #include <renderware/RpGeometry.h>
 #include <renderware/RpAtomic.h>
 
-MYMOD(net.juniordjjr.rusjj.pedfuncs, PedFuncs, 1.1, JuniorDjjr & RusJJ)
+MYMOD(net.juniordjjr.rusjj.pedfuncs, PedFuncs, 1.1.1, JuniorDjjr & RusJJ)
 BEGIN_DEPLIST()
     ADD_DEPENDENCY_VER(net.rusjj.aml, 1.3)
     ADD_DEPENDENCY_VER(net.rusjj.gtasa.utils, 1.3)
@@ -64,7 +64,9 @@ struct PedRemaps
         const int size = vecRemap.size();
 
         if(size <= 0) return NULL;
-        return vecRemap[randint(0, size - 1)];
+        
+        int idx = randint(0, size);
+        return (idx > 0) ? vecRemap[idx - 1] : NULL;
     }
 };
 struct PedExtended
