@@ -401,7 +401,7 @@ ON_MOD_LOAD()
 
     // CHandObject::CHandObject
     aml->Redirect(pGTASA + BYBIT(0x4529B6 + 0x1, 0x53B4F0), (uintptr_t)HandObjectMissingTexture);
-    HandObjectMissingTexture_BackTo = pGTASA + BYBIT(0x4529D0 + 0x1, 0x53B510);
+    HandObjectMissingTexture_BackTo = pGTASA + BYBIT(0x4529D0 + 0x1, 0x53B514);
 
     GangHandsTexDB = (TextureDatabaseRuntime**)sautils->AddTextureDB("ganghands");
 
